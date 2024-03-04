@@ -1,128 +1,59 @@
 import streamlit as st
-import re
 
-def Rule(output, *patterns):
-    "A rule that produces `output` if the entire input matches any one of the `patterns`." 
-    return (output, [name_group(pat) + '$' for pat in patterns])
+# Define parsing rules
+def parse_sentence(sentence):
+    logical_form = ""
+    propositions = {}
 
-def name_group(pat):
-    "Replace '{Q}' with '(?P<Q>.+?)', which means 'match 1 or more characters, and call it Q'"
-    return re.sub('{(.)}', r'(?P<\1>.+?)', pat)
+    tokens = sentence.lower().split()
 
-def word(w):
-    "Return a regex that matches w as a complete word (not letters inside a word)."
-    return r'\b' + w + r'\b'  # '\b' matches at word boundary
+    for idx, token in enumerate(tokens):
+        if token == "and":
+            logical_form += " ∧ "
+        elif token == "or":
+            logical_form += " ∨ "
+        elif token == "not":
+            logical_form += " ¬ "
+        elif token == "either":
+            logical_form += " ⋁ "
+        elif token == "nor":
+            logical_form += " ⋁¬ "
+        elif token == "neither":
+            logical_form += " ¬⋁¬ "
+        elif token == "both":
+            logical_form += " ⋀ "
+        elif token == "but":
+            logical_form += " ⋀¬ "
+        elif token == "provided" and idx < len(tokens) - 1 and tokens[idx + 1] == "that":
+            logical_form += " ⇒ "
+        elif token == "whenever":
+            logical_form += " ⇒ "
+        else:
+            if token not in propositions:
+                propositions[token] = token
+            logical_form += propositions[token]+" "
 
-def match_rules(sentence, rules, defs):
-    """Match sentence against all the rules, accepting the first match; or else make it an atom.
-    Return two values: the Logic translation and a dict of {P: 'english'} definitions."""
-    sentence = clean(sentence)
-    for rule in rules:
-        result = match_rule(sentence, rule, defs)
-        if result: 
-            return result
-    return match_literal(sentence, negations, defs)
+    return logical_form, propositions
 
-def match_rule(sentence, rule, defs):
-    "Match rule, returning the logic translation and the dict of definitions if the match succeeds."
-    output, patterns = rule
-    for pat in patterns:
-        match = re.match(pat, sentence, flags=re.I)
-        if match:
-            groups = match.groupdict()
-            for P in sorted(groups):  # Recursively apply rules to each of the matching groups
-                groups[P] = match_rules(groups[P], rules, defs)[0]
-            return '(' + output.format(**groups) + ')', defs
+# Streamlit UI
+st.set_page_config(
+    page_title="Logical Representation Parser",
+    page_icon=":1234:",
+    layout="centered",
+    initial_sidebar_state="auto"
+)
 
-def match_literal(sentence, negations, defs):
-    "No rule matched; sentence is an atom. Add new proposition to defs. Handle negation."
-    polarity = ''
-    for (neg, pos) in negations:
-        (sentence, n) = re.subn(neg, pos, sentence, flags=re.I)
-        polarity += n * '～'
-    sentence = clean(sentence)
-    P = proposition_name(sentence, defs)
-    defs[P] = sentence
-    return polarity + P, defs
+st.title("Logical Representation Parser")
 
-def proposition_name(sentence, defs, names='PQRSTUVWXYZBCDEFGHJKLMN'):
-    "Return the old name for this sentence, if used before, or a new, unused name."
-    inverted = {defs[P]: P for P in defs}
-    if sentence in inverted:
-        return inverted[sentence]  # Find previously-used name
-    else:
-        return next(P for P in names if P not in defs)  # Use a new unused name
+# Text input for user to enter a sentence
+sentence = st.text_input("Enter a sentence:")
 
-def clean(text): 
-    "Remove redundant whitespace; handle curly apostrophe and trailing comma/period."
-    return ' '.join(text.split()).replace("’", "'").rstrip('.').rstrip(',')
-
-# Rules definition (copy from your original code)
-rules = [
-     Rule('{P} ⇒ {Q}',         'if {P} then {Q}', 'if {P}, {Q}'),
-    Rule('{P} ⋁ {Q}',          'either {P} or else {Q}', 'either {P} or {Q}'),
-    Rule('{P} ⋀ {Q}',          'both {P} and {Q}'),
-    Rule('～{P} ⋀ ～{Q}',       'neither {P} nor {Q}'),
-    Rule('～{A}{P} ⋀ ～{A}{Q}', '{A} neither {P} nor {Q}'), # The Kaiser neither ...
-    Rule('～{Q} ⇒ {P}',        '{P} unless {Q}'),
-    Rule('{P} ⇒ {Q}',          '{Q} provided that {P}', '{Q} whenever {P}', 
-                               '{P} implies {Q}', '{P} therefore {Q}', 
-                               '{Q}, if {P}', '{Q} if {P}', '{P} only if {Q}'),
-    Rule('{P} ⋀ {Q}',          '{P} and {Q}', '{P} but {Q}'),
-    Rule('{P} ⋁ {Q}',          '{P} or else {Q}', '{P} or {Q}'),
-]
-
-# Negations definition (copy from your original code)
-negations = [
-    (word("not"), ""),
-    (word("cannot"), "can"),
-    (word("can't"), "can"),
-    (word("won't"), "will"),
-    (word("ain't"), "is"),
-    ("n't", ""),  # matches as part of a word: didn't, couldn't, etc.
-]
-
-st.title("Logical Representations of Sentence ")
-
-user_input = st.text_area("Enter the sentence to do logical representation:")
-if st.button("Apply"):
-    if user_input:
-        logic_translation, definitions = match_rules(clean(user_input), rules, {})
-        
-        st.markdown("""
-        <style>
-            .translation-container {
-                background-color: #ffffff;
-                border-radius: 10px;
-                padding: 20px;
-                box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-                margin-top: 20px;
-            }
-            .translation-header {
-                font-size: 1.5rem;
-                margin-bottom: 10px;
-            }
-            .definition-item {
-                margin-bottom: 5px;
-            }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div class="translation-container">
-            <div class="translation-header">Logic Translation:</div>
-            <div id="logic-translation">{}</div>
-        </div>
-        """.format(logic_translation), unsafe_allow_html=True)
-        
-        if definitions:
-            st.markdown("""
-            <div class="translation-container">
-                <div class="translation-header">Definitions:</div>
-                <div id="definitions">
-            """, unsafe_allow_html=True)
-            
-            for P, definition in definitions.items():
-                st.markdown("<div class='definition-item'>{P}: {definition}</div>".format(P=P, definition=definition), unsafe_allow_html=True)
-            
-            st.markdown("</div></div>", unsafe_allow_html=True)
+# Button to trigger parsing
+if st.button("Parse", key="parse_button"):
+    # Parse the sentence
+    logical_form, propositions = parse_sentence(sentence)
+    st.markdown("---")
+    st.subheader("Parsed Result:")
+    st.write(f"**Logical Form:** {logical_form}")
+    
+ 
